@@ -2,6 +2,7 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 #include "kernel/fs.h"
+#include "kernel/param.h"
 
 char*
 fmtname(char *path)
@@ -46,6 +47,13 @@ ls(char *path)
   case T_FILE:
     printf("%s %d %d %l\n", fmtname(path), st.type, st.ino, st.size);
     break;
+    
+  case T_SYMLINK:
+    printf("SYMLINK!\n");
+    char buf[MAXPATH];
+    if (readlink(fmtname(path), buf) < 0) break;
+  	printf("%s %d %d %l %s\n", fmtname(path), st.type, st.ino, st.size, buf);
+  	break;
 
   case T_DIR:
     if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){

@@ -256,7 +256,7 @@ create(char *path, short type, short major, short minor)
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
-    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
+    if((type == T_FILE || type == T_SYMLINK) && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
     iunlockput(ip);
     return 0;
@@ -301,18 +301,10 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
-uint64
-sys_open(void)
-{
-  char path[MAXPATH];
-  int fd, omode;
+uint64 fopen(char* path, int omode) {
+  int fd;
   struct file *f;
   struct inode *ip;
-  int n;
-
-  argint(1, &omode);
-  if((n = argstr(0, path, MAXPATH)) < 0)
-    return -1;
 
   begin_op();
 
@@ -368,6 +360,20 @@ sys_open(void)
   end_op();
 
   return fd;
+}
+
+uint64
+sys_open(void)
+{
+  char path[MAXPATH];
+  int omode;
+  int n;
+
+  argint(1, &omode);
+  if((n = argstr(0, path, MAXPATH)) < 0)
+    return -1;
+
+  return fopen(path, omode);
 }
 
 uint64
@@ -502,4 +508,62 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64 sys_symlink(void) {
+	char target[MAXPATH];
+	char filename[MAXPATH];
+
+	if (argstr(0, target, MAXPATH) < 0) return -1;
+	if (argstr(1, filename, MAXPATH) < 0 ) return -1;
+
+	begin_op();
+
+	struct inode* ip = create(filename, T_SYMLINK, 0, 0);
+	if (ip == 0) {
+		end_op();
+		return -1;
+	}
+
+	struct file* f;
+	int fd;
+	if ((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0) {
+    	if (f) fileclose(f);
+    	iunlockput(ip);
+    	end_op();
+    	return -1;
+ 	}
+
+ 	f->type = FD_INODE;
+    f->off = 0;
+    f->ip = ip;
+ 	f->readable = 1;
+  	f->writable = 1;
+
+	if (writei(ip, 0, (uint64)target, 0, strlen(target)) < 0) {
+		printf("write error!\n");
+		iunlockput(ip);
+		end_op();
+	};
+
+	iunlock(ip);
+	end_op();
+	
+	return fd;
+}
+
+uint64 sys_readlink(void) {
+	char filename[MAXPATH];
+	char buf[MAXPATH];
+	uint64 addr;
+
+	if (argstr(0, filename, MAXPATH) < 0) return -1;
+	argaddr(1, &addr);
+
+	struct inode* ip;
+	if ( (ip = namei(filename)) == 0 ) return -1;
+	if (readi(ip, 0, (uint64)buf, 0, MAXPATH) < 0) return -1;
+	if ( copyout(myproc()->pagetable, addr, buf, strlen(buf)) < 0 ) return -1;
+
+	return 0;
 }
