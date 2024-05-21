@@ -649,14 +649,15 @@ skipelem(char *path, char *name)
 // path element into name, which must have room for DIRSIZ bytes.
 // Must be called inside a transaction since it calls iput().
 static struct inode*
-namex(char *path, int nameiparent, char *name)
+namex(char *path, int nameiparent, char *name, struct inode* relative_path)
 {
   struct inode *ip, *next;
 
   if(*path == '/')
     ip = iget(ROOTDEV, ROOTINO);
-  else
+  else if (relative_path == 0)
     ip = idup(myproc()->cwd);
+  else ip = idup(relative_path);
 
   while((path = skipelem(path, name)) != 0){
     ilock(ip);
@@ -687,11 +688,66 @@ struct inode*
 namei(char *path)
 {
   char name[DIRSIZ];
-  return namex(path, 0, name);
+  return namex(path, 0, name, 0);
 }
 
 struct inode*
 nameiparent(char *path, char *name)
 {
-  return namex(path, 1, name);
+  return namex(path, 1, name, 0);
+}
+
+int
+nameid(char *path, struct inode **ip, struct inode **dp)
+{
+  char name[DIRSIZ];
+  struct inode *ndp = 0;
+  struct inode *nip = 0;
+
+  ndp = namex(path, 1, name, *dp);
+  if (ndp == 0) {
+    if ((nip = namei(path)) != 0) {
+      if (*ip != 0) 
+      	iput(*ip);
+      *ip = nip;
+  		return 0;
+    }
+    return -1;
+  }
+  
+  nip = dirlookup(ndp, name, 0);
+  if (nip == 0) {
+    iput(ndp);
+    return -1;
+  }
+
+  if (*dp != 0)
+    iput(*dp);
+  *dp = ndp;
+
+  if (*ip != 0) 
+    iput(*ip);
+  *ip = nip;
+
+  return 0;
+}
+
+int
+golink(struct inode **ip, struct inode **dp, char *filepath)
+{
+  ilock(*ip);
+  if ((*ip)->type != T_SYMLINK) {
+    iunlock(*ip);
+    return 0;
+  }
+
+  int n = readi(*ip, 0, (uint64)filepath, 0, MAXPATH - 1);
+  filepath[n] = '\0';
+
+  iunlock(*ip);
+
+  if (n <= 0 || nameid(filepath, ip, dp) < 0)
+    return -1;
+
+  return 1;
 }

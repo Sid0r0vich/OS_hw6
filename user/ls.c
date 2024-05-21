@@ -26,7 +26,8 @@ fmtname(char *path)
 void
 ls(char *path)
 {
-  char buf[512], *p;
+  char buf[MAXPATH * 4], *p;
+  char buf2[MAXPATH * 4];
   int fd;
   struct dirent de;
   struct stat st;
@@ -44,16 +45,14 @@ ls(char *path)
 
   switch(st.type){
   case T_DEVICE:
-  case T_FILE:
-    printf("%s %d %d %l\n", fmtname(path), st.type, st.ino, st.size);
-    break;
-    
   case T_SYMLINK:
-    printf("SYMLINK!\n");
     char buf[MAXPATH];
     if (readlink(fmtname(path), buf) < 0) break;
   	printf("%s %d %d %l %s\n", fmtname(path), st.type, st.ino, st.size, buf);
   	break;
+  case T_FILE:
+    printf("%s %d %d %l\n", fmtname(path), st.type, st.ino, st.size);
+    break;
 
   case T_DIR:
     if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
@@ -68,11 +67,20 @@ ls(char *path)
         continue;
       memmove(p, de.name, DIRSIZ);
       p[DIRSIZ] = 0;
-      if(stat(buf, &st) < 0){
+      if(lstat(buf, &st) < 0){
         printf("ls: cannot stat %s\n", buf);
         continue;
       }
-      printf("%s %d %d %d\n", fmtname(buf), st.type, st.ino, st.size);
+      if (st.type == T_SYMLINK) {
+      	if (readlink(buf, buf2) < 0) {
+      		printf("cannot read link %s\n", buf);
+      		continue;
+      	}
+      	printf("%s %d %d %d %s\n", fmtname(buf), st.type, st.ino, st.size, buf2);
+      } else {
+      	printf("%s %d %d %d\n", fmtname(buf), st.type, st.ino, st.size);
+      }
+      
     }
     break;
   }

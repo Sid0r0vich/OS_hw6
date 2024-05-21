@@ -301,10 +301,23 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
-uint64 fopen(char* path, int omode) {
-  int fd;
+uint64
+sys_open(void)
+{
+  char path[MAXPATH];
+  char target[MAXPATH];
+  int fd, omode;
   struct file *f;
-  struct inode *ip;
+  struct inode *ip = 0;
+  struct inode *dp = 0;
+  int n, no_follow;
+
+  argint(1, &omode);
+  if((n = argstr(0, path, MAXPATH)) < 0)
+    return -1;
+
+  no_follow = (omode & O_NOFOLLOW) > 0;
+  omode &= ~O_NOFOLLOW;
 
   begin_op();
 
@@ -315,11 +328,27 @@ uint64 fopen(char* path, int omode) {
       return -1;
     }
   } else {
-    if((ip = namei(path)) == 0){
+    if(nameid(path, &ip, &dp) < 0){
       end_op();
       return -1;
     }
+
+	int i;
+    if (!no_follow) {
+      for (i = 0; i < 40 && (n = golink(&ip, &dp, target)) > 0; ++i);
+	
+      if (n < 0 || i == 40) {
+        iput(ip);
+        iput(dp);
+        end_op();
+        return -1;
+      }
+    }
+    
+    if (dp)
+      iput(dp);
     ilock(ip);
+
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -360,20 +389,6 @@ uint64 fopen(char* path, int omode) {
   end_op();
 
   return fd;
-}
-
-uint64
-sys_open(void)
-{
-  char path[MAXPATH];
-  int omode;
-  int n;
-
-  argint(1, &omode);
-  if((n = argstr(0, path, MAXPATH)) < 0)
-    return -1;
-
-  return fopen(path, omode);
 }
 
 uint64
@@ -516,7 +531,6 @@ uint64 sys_symlink(void) {
 
 	if (argstr(0, target, MAXPATH) < 0) return -1;
 	if (argstr(1, filename, MAXPATH) < 0 ) return -1;
-
 	begin_op();
 
 	struct inode* ip = create(filename, T_SYMLINK, 0, 0);
@@ -555,6 +569,8 @@ uint64 sys_symlink(void) {
 uint64 sys_readlink(void) {
 	char filename[MAXPATH];
 	char buf[MAXPATH];
+	memset(buf, 0, MAXPATH);
+	memset(filename, 0, MAXPATH);
 	uint64 addr;
 
 	if (argstr(0, filename, MAXPATH) < 0) return -1;
